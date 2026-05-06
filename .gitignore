@@ -1,2 +1,43 @@
+# Databricks
+.databricks/
 
-.databricks
+# Claude Code / MCP / AI dev kit
+.claude/
+.mcp.json
+.ai-dev-kit/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Secrets / local env
+.env
+.env.local
+*.pem
+
+# Local data stores (mlflow, langchain, etc.)
+*.db
+*.db-journal
+
+# Build / dist
+build/
+dist/
