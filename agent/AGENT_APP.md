@@ -28,10 +28,10 @@ chat message ─▶ AgentServer.stream_handler ─▶ init_agent() ─▶ compil
                                                           route_after_ticker (conditional edge)
                                                             │                │
                                                   ticker valid          ticker == UNKNOWN
-                                                            │                │
-                                                  Send×3 (parallel)      ┌───┴───┐
-                                          ┌─────────────────┼─────────────┐ │ clarify│  short-circuit msg
-                                          ▼                 ▼             ▼ └───┬───┘
+                                                            │                │----
+                                                  Send×3 (parallel)          ┌───┴───--┐
+                                          ┌─────────────────┼─────────────┐  │ clarify │  short-circuit msg
+                                          ▼                 ▼             ▼  └──--───--┘
                                 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
                                 │ write_section   │ │ write_section   │ │ write_section   │  3× same node
                                 │ overview        │ │ financial       │ │ devils_advocate │  parallel

@@ -33,12 +33,26 @@ agent_config:
   # land traces in the same place.
   mlflow_experiment_name: /Workspace/Users/ben.doan@databricks.com/equity-research-agent-hackathon
 
+self_query_config:
+  # LLM that translates a natural-language query into a structured
+  # (rewritten_query, filter) pair for the self-querying retriever.
+  # Cheap + fast wins here — the model emits a small JSON object, not
+  # prose. Used only by the `self_query_search_earnings_docs` tool, which
+  # is bound to a section subagent only when its
+  # `use_self_querying_retriever: true` flag below is set.
+  model_endpoint: databricks-claude-haiku-4-5
+
 subagents:
   - name: overview-agent
     description: >-
       Writes the Overview section: company description and business model
       AND the segment-level breakdown (revenue / op income by segment).
     model_endpoint: databricks-claude-sonnet-4-6
+    # When true, swaps `search_earnings_docs` ->
+    # `self_query_search_earnings_docs` in this subagent's tool list. The
+    # self-querying tool uses an LLM to auto-generate quarter/year/filename
+    # filters from natural-language queries. Other tools unchanged.
+    use_self_querying_retriever: false
     tools:
       - search_earnings_docs       # general semantic search
       - multi_query_search         # batch broad + segment queries in one call
@@ -79,6 +93,8 @@ subagents:
       EPS / FCF trends AND capital return commentary (buybacks, dividends,
       share count).
     model_endpoint: databricks-claude-sonnet-4-6
+    # See note on overview-agent.use_self_querying_retriever.
+    use_self_querying_retriever: true
     tools:
       - search_earnings_docs       # general semantic search
       - list_available_periods     # build the time-series row list
@@ -123,6 +139,8 @@ subagents:
       Writes the Devil's Advocate section: bear case, risks, and concerns
       surfaced from the documents. Required to cite specific evidence.
     model_endpoint: databricks-claude-sonnet-4-6
+    # See note on overview-agent.use_self_querying_retriever.
+    use_self_querying_retriever: false
     tools:
       - search_earnings_docs       # single targeted concern probes
       - multi_query_search         # batch the standard risk-keyword sweep

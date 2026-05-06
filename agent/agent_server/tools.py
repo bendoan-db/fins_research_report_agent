@@ -171,6 +171,161 @@ def multi_query_search(
 
 
 # ---------------------------------------------------------------------------
+# Self-querying retriever — uses an LLM to translate a natural-language
+# query into a (rewritten_query, structured_filter) pair, so subagents can
+# ask "AWS margin in Q4 2024" and get a filter on `(quarter, year)` for
+# free instead of hoping semantic search lands on the right pages.
+# ---------------------------------------------------------------------------
+
+_DOC_CONTENTS = (
+    "Excerpts from corporate earnings filings (10-Q, 10-K, slide decks): "
+    "company performance commentary, financial line items, segment "
+    "breakdowns, capital-return and risk discussion."
+)
+
+
+def _attribute_info():
+    """Filterable metadata fields exposed to the query constructor.
+
+    Keep in sync with `retrieval_config.columns` in agent_config.yaml AND
+    with the index's `columns_to_sync` in
+    doc_ingestion/pipeline/06a_build_index.py.
+    """
+    from langchain_classic.chains.query_constructor.schema import AttributeInfo
+
+    return [
+        AttributeInfo(
+            name="ticker",
+            description=(
+                "Stock ticker symbol of the issuing company in uppercase. "
+                "Allowed values: 'GOOG', 'AMZN', 'NVDA', 'MSFT'."
+            ),
+            type="string",
+        ),
+        AttributeInfo(
+            name="quarter",
+            description=(
+                "Reporting period within a fiscal year. Use the strings "
+                "'1', '2', '3', '4' for quarterly filings (10-Q), or "
+                "'annual' for the full-year 10-K."
+            ),
+            type="string",
+        ),
+        AttributeInfo(
+            name="year",
+            description="Calendar year of the filing as an integer (e.g. 2024).",
+            type="integer",
+        ),
+        AttributeInfo(
+            name="filename",
+            description="Source PDF filename. Useful when the user names a file directly.",
+            type="string",
+        ),
+    ]
+
+
+_EXAMPLES = [
+    (
+        "What did AMZN say about AWS operating margin in Q4 2024?",
+        {
+            "query": "AWS operating margin commentary",
+            "filter": 'and(eq("ticker", "AMZN"), eq("quarter", "4"), eq("year", 2024))',
+        },
+    ),
+    (
+        "Summarize NVDA's full-year 2024 data center segment performance.",
+        {
+            "query": "data center segment revenue and growth",
+            "filter": 'and(eq("ticker", "NVDA"), eq("quarter", "annual"), eq("year", 2024))',
+        },
+    ),
+    (
+        "How has GOOG's operating margin trended across 2023 and 2024?",
+        {
+            "query": "operating margin trend",
+            "filter": 'and(eq("ticker", "GOOG"), gte("year", 2023), lte("year", 2024))',
+        },
+    ),
+]
+
+
+@lru_cache(maxsize=1)
+def _self_query_components():
+    """Build (query_constructor, vector_store, translator) once per process.
+
+    Returns a tuple instead of a SelfQueryRetriever because we apply the
+    hard ticker filter ourselves in `self_query_search_earnings_docs` —
+    `SelfQueryRetriever._prepare_query` does `{**self.search_kwargs,
+    **new_kwargs}`, so a baked-in `search_kwargs={"filter": {...}}` gets
+    clobbered the moment the LLM emits any filter.
+
+    Heavy imports (`langchain_classic`, `langchain_community`) live here so
+    the cost is paid only when a subagent flips
+    `use_self_querying_retriever: true` — agents that don't use the
+    self-query path don't drag these into their boot path.
+    """
+    from databricks_langchain import ChatDatabricks
+    from langchain_classic.chains.query_constructor.base import (
+        load_query_constructor_runnable,
+    )
+    from langchain_community.query_constructors.databricks_vector_search import (
+        DatabricksVectorSearchTranslator,
+    )
+
+    cfg = load_agent_config()
+    sq_cfg = cfg["self_query_config"]
+    llm = ChatDatabricks(endpoint=sq_cfg["model_endpoint"])
+    constructor = load_query_constructor_runnable(
+        llm=llm,
+        document_contents=_DOC_CONTENTS,
+        attribute_info=_attribute_info(),
+        examples=_EXAMPLES,
+        fix_invalid=True,
+    )
+    return constructor, _retriever(), DatabricksVectorSearchTranslator()
+
+
+@tool
+def self_query_search_earnings_docs(
+    query: str,
+    ticker: str,
+    k: int = _TOP_K_DEFAULT,
+) -> list[dict[str, Any]]:
+    """Self-querying semantic search: an LLM auto-generates a structured
+    filter (on quarter/year/filename) from your natural-language query, then
+    runs hybrid retrieval over the earnings index. ``ticker`` is required
+    and is always ANDed in as a hard filter, overwriting any ticker the
+    auto-filter generates. Same return shape as ``search_earnings_docs``.
+
+    Use this when your query naturally mentions a period (e.g. "AWS margin
+    in Q4 2024") — the filter will pin the right filing instead of relying
+    on semantic similarity alone.
+    """
+    if not ticker:
+        raise ValueError("ticker is required")
+    constructor, vector_store, translator = _self_query_components()
+    structured = constructor.invoke({"query": query})
+    new_query, search_kwargs = translator.visit_structured_query(structured)
+    llm_filter = (search_kwargs or {}).get("filter") or {}
+    # Hard-merge our ticker filter — overwrites whatever the LLM said about
+    # ticker so the caller's `ticker` arg is always the source of truth.
+    merged_filter = {**llm_filter, "ticker": ticker.upper()}
+    docs = vector_store.similarity_search(
+        query=new_query,
+        k=k,
+        filter=merged_filter,
+        query_type="hybrid",
+    )
+    out: list[dict[str, Any]] = []
+    for d in docs:
+        row: dict[str, Any] = {"content": d.page_content}
+        if d.metadata:
+            row.update(d.metadata)
+        out.append(row)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # SQL-warehouse-backed tools — read directly from the source `gold_documents`
 # table for fully-faithful (non-semantic) period drilling.
 # ---------------------------------------------------------------------------
@@ -324,6 +479,7 @@ def save_report_to_volume(markdown: str, ticker: str, save_location: str) -> str
 
 SECTION_TOOL_REGISTRY: dict[str, Any] = {
     "search_earnings_docs": search_earnings_docs,
+    "self_query_search_earnings_docs": self_query_search_earnings_docs,
     "multi_query_search": multi_query_search,
     "list_available_periods": list_available_periods,
     "get_period_full_content": get_period_full_content,

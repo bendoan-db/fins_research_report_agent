@@ -161,10 +161,36 @@ def _resolve_tools(entry: dict) -> list:
     """Translate the yaml `tools:` list (a list of registry names) into
     actual @tool callables. Defaults to `[search_earnings_docs]` for
     backwards compat — section subagents that omit `tools:` still get the
-    base retrieval tool. An empty list (`tools: []`) means no tools."""
+    base retrieval tool. An empty list (`tools: []`) means no tools.
+
+    When `use_self_querying_retriever: true` on the entry, the registry
+    name `search_earnings_docs` is rewritten to
+    `self_query_search_earnings_docs` BEFORE registry lookup; every other
+    tool name passes through unchanged. `multi_query_search` is
+    intentionally NOT swapped — it hard-references `search_earnings_docs`
+    in its body, and self-querying inside an LLM-enumerated query batch
+    doesn't compose well anyway.
+    """
+    use_self_query = bool(entry.get("use_self_querying_retriever", False))
+
+    def _swap(name: str) -> str:
+        if use_self_query and name == "search_earnings_docs":
+            return "self_query_search_earnings_docs"
+        return name
+
     if "tools" not in entry:
-        return [SECTION_TOOL_REGISTRY["search_earnings_docs"]]
-    return [SECTION_TOOL_REGISTRY[name] for name in entry["tools"]]
+        base = "self_query_search_earnings_docs" if use_self_query else "search_earnings_docs"
+        return [SECTION_TOOL_REGISTRY[base]]
+
+    declared = list(entry["tools"])
+    if use_self_query and "search_earnings_docs" not in declared:
+        logger.warning(
+            "Subagent %r has use_self_querying_retriever=true but does not "
+            "declare 'search_earnings_docs' in its tools list — the flag has "
+            "no effect.",
+            entry.get("name", "<unknown>"),
+        )
+    return [SECTION_TOOL_REGISTRY[_swap(name)] for name in declared]
 
 
 def _build_section_agents() -> dict:

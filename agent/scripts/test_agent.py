@@ -87,7 +87,7 @@ print(f"sys.path[0]: {sys.path[0]}")
 # COMMAND ----------
 
 question = "Research report for NVDA"
-save_location = None  # e.g. "/Volumes/doan/difficult_doc_qa/research_reports"
+save_location = "/Volumes/doan/difficult_doc_qa/research_reports"
 print(f">>> {question}")
 if save_location:
     print(f"save_location: {save_location}")

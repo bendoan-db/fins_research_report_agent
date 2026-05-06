@@ -15,6 +15,9 @@ databricks-agents>=1.9.3       # ResponsesAgent shape + agent_server runtime
 # databricks-langchain but pinned here for clarity.
 langgraph>=1.1.0
 langchain>=1.0.0
+langchain-classic>=1.0.4   # SelfQueryRetriever + load_query_constructor_runnable
+langchain-community>=0.4.1 # DatabricksVectorSearchTranslator
+lark>=1.1.9                # parses the query-constructor filter DSL (eq/and/gte/...)
 
 # --- Tracing + experiment binding ---
 mlflow>=3.10.0
