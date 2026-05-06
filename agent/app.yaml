@@ -1,0 +1,15 @@
+command: ["uv", "run", "start-server"]
+# Databricks Apps inject DATABRICKS_APP_PORT (default 8000); AgentServer binds to it automatically.
+
+env:
+  - name: MLFLOW_TRACKING_URI
+    value: "databricks"
+  - name: MLFLOW_REGISTRY_URI
+    value: "databricks-uc"
+  - name: MLFLOW_EXPERIMENT_ID
+    valueFrom: experiment
+  # Required by the SQL-warehouse-backed tools (`list_available_periods`,
+  # `get_period_full_content`). Bound to the SQL warehouse declared in
+  # databricks.yml under `resources.apps.research_agent.resources`.
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse

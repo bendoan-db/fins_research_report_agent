@@ -1,0 +1,10 @@
+# Local SQLite stores (mlflow / langchain / etc.) — should never ship to the
+# Databricks Apps source snapshot.
+*.db
+*.db-journal
+
+# Local virtualenv
+.venv/
+
+# .env contains real tokens — never deploy.
+.env

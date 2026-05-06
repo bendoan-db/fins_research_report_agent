@@ -1,0 +1,25 @@
+# Runtime dependencies for the research agent.
+# Mirrors `[project.dependencies]` in pyproject.toml — keep in sync.
+
+# --- FastAPI server (mlflow.genai.agent_server.AgentServer) ---
+fastapi>=0.129.0
+uvicorn>=0.41.0
+
+# --- Databricks integrations ---
+databricks-langchain>=0.17.0   # ChatDatabricks + DatabricksVectorSearch
+databricks-agents>=1.9.3       # ResponsesAgent shape + agent_server runtime
+
+# --- LangGraph orchestration ---
+# `langchain.agents.create_agent` (per-section subagents) + StateGraph + Send
+# come from langgraph + langchain. langchain is a transitive dep of
+# databricks-langchain but pinned here for clarity.
+langgraph>=1.1.0
+langchain>=1.0.0
+
+# --- Tracing + experiment binding ---
+mlflow>=3.10.0
+
+# --- Misc ---
+python-dotenv>=1.2.1           # local-dev .env loading
+pyyaml>=6.0                    # agent_config.yaml loader
+ipython                        # IPython.display.Markdown in test_agent notebook

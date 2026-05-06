@@ -1,0 +1,3 @@
+databricks-connect>=16.4,<18
+databricks-sdk
+pyyaml

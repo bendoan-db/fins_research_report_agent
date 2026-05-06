@@ -1,0 +1,59 @@
+databricks_config:
+  catalog: doan
+  schema: difficult_doc_qa
+  volume_name: earnings_slides
+  ai_parse_doc_volume: ai_parse_doc_images
+
+ingestion_pipeline:
+  metadata_extraction_step:
+    document_metadata_table: bronze_raw_documents_with_metadata
+    checkpoint_prefix: _checkpoints/v3
+    tickers:
+      - symbol: GOOG
+        aliases: [alphabet]
+      - symbol: AMZN
+      - symbol: NVDA
+        aliases: [NVIDIA]
+      - symbol: MSFT
+  document_parsing_step: 
+    parsed_document_table_raw_elements_table: silver_document_raw_parsed_outputs
+    parsed_document_table_raw_elements_checkpoint_prefix: _checkpoints/v3
+
+    parsed_document_elements_table: silver_document_elements
+    parsed_document_table_elements_checkpoint_prefix: _checkpoints/v3
+    
+    parsed_document_pages_table: silver_document_pages
+    parsed_document_table_pages_checkpoint_prefix: _checkpoints/v3
+  
+  figure_captioning_step:
+    figure_captions_table: silver_figure_captions
+    caption_checkpoint_prefix: _checkpoints/v3
+    caption_endpoint: databricks-claude-sonnet-4
+    captioning_prompt: This figure was extracted from an earnings slide deck.
+      Generate a caption for the figure so that its contents can be used in document retrieval for a RAG agent.
+      If the figure is a chart or graphic, extract all of the key data and insights that can be taken from the graph elements so that reasoning can be performed over the graph information. Note the metrics, axes, and trends
+      If it's a logo or decorative if it's a logo or decorative graphic, say so briefly
+  
+  page_aggregation_step:
+    aggregated_document_pages_table: silver_document_elements_aggregated
+    aggregated_document_pages_checkpoint_prefix: _checkpoints/v4
+
+  summarization_step:
+    gold_documents_table: gold_documents
+    gold_documents_checkpoint_prefix: _checkpoints/v5
+    summary_endpoint: databricks-claude-sonnet-4
+    summarization_prompt: |
+      Concisely summarize the contents of this document page for a RAG retrieval index.
+      Focus on key metrics, financial figures, business segments, and decisions discussed.
+      Extract any and all key financial figures and insights to be take from this chunk.
+      Be specific about numbers, percentages, and time periods.
+      Do not preface with "This page" — just write the summary.
+
+  vector_index_step:
+    vector_search_endpoint: financebench
+    vector_search_index: gold_documents_index
+    embedding_model: databricks-qwen3-embedding-0-6b
+
+  gallery_step:
+    gallery_table: gold_documents_gallery
+    gallery_checkpoint_prefix: _checkpoints/v5

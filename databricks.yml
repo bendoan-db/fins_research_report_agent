@@ -1,0 +1,122 @@
+# This is a Databricks asset bundle definition for difficult-doc-qa.
+# The Databricks extension requires databricks.yml configuration file.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+
+bundle:
+  name: difficult-doc-qa
+
+variables:
+  sql_warehouse_id:
+    description: SQL warehouse the gallery app reads from.
+    default: 995bc1ffd2ff99a4
+  gallery_table_full_name:
+    description: Three-part name of the gold gallery table the app reads from.
+    default: doan.difficult_doc_qa.gold_documents_gallery
+  page_images_volume_full_name:
+    description: Three-part name of the volume holding rendered page images.
+    default: doan.difficult_doc_qa.ai_parse_doc_images
+  research_agent_section_endpoint:
+    description: Model serving endpoint the research agent's section subagents call.
+    default: databricks-claude-sonnet-4-6
+  research_agent_orchestration_endpoint:
+    description: Cheaper endpoint used by extract_ticker + the assembler node.
+    default: databricks-claude-haiku-4-5
+  research_agent_experiment_path:
+    description: Workspace path for the MLflow experiment that captures research-agent traces.
+    default: /Workspace/Users/ben.doan@databricks.com/equity-research-agent-hackathon
+
+resources:
+  experiments:
+    research_agent_experiment:
+      name: ${var.research_agent_experiment_path}
+
+  apps:
+    doc_gallery_app:
+      name: doc-gallery-app
+      description: Side-by-side viewer for source pages and extracted elements from the doc_ingestion pipeline.
+      source_code_path: ./doc_gallery_app
+      # NOTE: Apps resource bindings only support FUNCTION / TABLE / VOLUME / CONNECTION
+      # securable types. USE_CATALOG / USE_SCHEMA on the parent catalog (`doan`) and
+      # schema (`doan.difficult_doc_qa`) must be granted to the app's service
+      # principal out-of-band (one-time SQL grants after first deploy):
+      #   GRANT USE CATALOG ON CATALOG doan TO `<sp_client_id>`;
+      #   GRANT USE SCHEMA  ON SCHEMA  doan.difficult_doc_qa TO `<sp_client_id>`;
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+        - name: gallery-table
+          uc_securable:
+            securable_full_name: ${var.gallery_table_full_name}
+            securable_type: TABLE
+            permission: SELECT
+        - name: page-images
+          uc_securable:
+            securable_full_name: ${var.page_images_volume_full_name}
+            securable_type: VOLUME
+            permission: READ_VOLUME
+
+    research_agent:
+      name: research-agent
+      description: Research-report agent (LangGraph) over the earnings-document Vector Search index.
+      source_code_path: ./agent
+      # ----------------------------------------------------------------------
+      # NOT BINDABLE through the bundle DSL today (the bundle's
+      # `databricks_app` resource only exposes: database / experiment /
+      # genie_space / job / postgres / secret / serving_endpoint /
+      # sql_warehouse / uc_securable — even though the Apps platform itself
+      # supports more types). Grant the following to the app's service
+      # principal out-of-band after first deploy:
+      #   -- Catalog/schema USE
+      #   GRANT USE CATALOG ON CATALOG doan TO `<sp_client_id>`;
+      #   GRANT USE SCHEMA  ON SCHEMA  doan.difficult_doc_qa TO `<sp_client_id>`;
+      #   -- Vector Search (UI: Compute → Vector Search → endpoint/index ACLs,
+      #   --                or via the SQL ALTER ... GRANT syntax)
+      #   GRANT USE ON VECTOR SEARCH ENDPOINT financebench TO `<sp_client_id>`;
+      #   GRANT READ ON VECTOR SEARCH INDEX doan.difficult_doc_qa.gold_documents_index
+      #     TO `<sp_client_id>`;
+      #   -- Required by the new SQL-warehouse tools `list_available_periods` +
+      #   -- `get_period_full_content` (read directly from the source table):
+      #   GRANT SELECT ON TABLE doan.difficult_doc_qa.gold_documents
+      #     TO `<sp_client_id>`;
+      #   -- Optional: enable the per-request `custom_inputs.save_location`
+      #   --           save tool (writes the assembled markdown to a UC volume).
+      #   --           BOTH READ and WRITE are required — the SDK's
+      #   --           files.upload performs a metadata read before writing,
+      #   --           so a write-only grant fails with "does not have READ
+      #   --           VOLUME". Grant on whichever volume callers will pass:
+      #   CREATE VOLUME IF NOT EXISTS doan.difficult_doc_qa.research_reports;
+      #   GRANT READ VOLUME, WRITE VOLUME ON VOLUME doan.difficult_doc_qa.research_reports
+      #     TO `<sp_client_id>`;
+      # ----------------------------------------------------------------------
+      resources:
+        - name: experiment
+          experiment:
+            experiment_id: ${resources.experiments.research_agent_experiment.id}
+            permission: CAN_MANAGE
+        - name: section-endpoint
+          serving_endpoint:
+            name: ${var.research_agent_section_endpoint}
+            permission: CAN_QUERY
+        - name: orchestration-endpoint
+          serving_endpoint:
+            name: ${var.research_agent_orchestration_endpoint}
+            permission: CAN_QUERY
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fe-vm-vdm-classic-hkbucz.cloud.databricks.com
+
+  ## Optionally, there could be 'staging' or 'prod' targets here.
+  #
+  # prod:
+  #   workspace:
+  #     host: https://fe-vm-vdm-classic-hkbucz.cloud.databricks.com

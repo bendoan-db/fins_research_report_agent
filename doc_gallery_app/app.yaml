@@ -1,0 +1,12 @@
+command:
+  - streamlit
+  - run
+  - app.py
+
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: GALLERY_TABLE
+    value: doan.difficult_doc_qa.gold_documents_gallery
+  - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+    value: "false"
