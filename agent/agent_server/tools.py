@@ -45,15 +45,42 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_vs_client_args() -> dict:
-    """Resolve a usable host + bearer token for VectorSearchClient. Works for
-    all auth methods the SDK can resolve — PAT, SP OAuth M2M (Databricks Apps
-    runtime), and developer OAuth U2M (`databricks auth login`).
+    """Resolve `client_args` for `DatabricksVectorSearch`. Works for all
+    auth methods the SDK can resolve — PAT, SP OAuth M2M (Databricks
+    Apps runtime), and developer OAuth U2M (`databricks auth login`).
 
-    `databricks_langchain.DatabricksVectorSearch` only auto-passes credentials
-    when `auth_type in ('pat', 'oauth-m2m')`; for `databricks-cli` (local
-    dev) we feed an extracted bearer token in via `client_args` instead.
+    `VectorSearchClient` requires credentials passed explicitly in
+    `client_args` — it does NOT fall back to ambient SDK auth. The
+    *kind* of credential we pass dictates whether VS-side token
+    refresh works:
+
+    * `oauth-m2m` (Apps runtime): pass `service_principal_client_id` +
+      `service_principal_client_secret`. The wrapper performs its own
+      OAuth handshake and refreshes the SP token as needed, so the
+      `@lru_cache`d retriever stays valid past the ~1hr token TTL.
+      (Pinning a static bearer here was the bug we fixed —
+      `cfg.authenticate()` returns a snapshot token that goes dead and
+      every VS call after the first hour fails with
+      `PermissionDenied: Invalid Token`.)
+    * `pat`: pass `personal_access_token`. PATs don't expire on their
+      own.
+    * `databricks-cli` (local U2M OAuth): no SP-style credentials
+      available; extract a one-shot bearer and accept that local dev
+      sessions go stale after ~1hr (restart the venv).
     """
     cfg = WorkspaceClient().config
+    base = {"workspace_url": cfg.host, "disable_notice": True}
+
+    if cfg.auth_type == "oauth-m2m":
+        return {
+            **base,
+            "service_principal_client_id": cfg.client_id,
+            "service_principal_client_secret": cfg.client_secret,
+        }
+    if cfg.auth_type == "pat":
+        return {**base, "personal_access_token": cfg.token}
+
+    # databricks-cli (developer U2M) — no SP credentials, extract bearer.
     headers = cfg.authenticate()
     auth_value = headers.get("Authorization", "")
     if not auth_value.startswith("Bearer "):
@@ -62,11 +89,7 @@ def _resolve_vs_client_args() -> dict:
             "VectorSearchClient. Configure DATABRICKS_TOKEN, DATABRICKS_CLIENT_ID/"
             "DATABRICKS_CLIENT_SECRET, or `databricks auth login --profile <p>`."
         )
-    return {
-        "workspace_url": cfg.host,
-        "personal_access_token": auth_value.removeprefix("Bearer "),
-        "disable_notice": True,
-    }
+    return {**base, "personal_access_token": auth_value.removeprefix("Bearer ")}
 
 
 @lru_cache(maxsize=1)
